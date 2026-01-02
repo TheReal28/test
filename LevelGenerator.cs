@@ -15,6 +15,7 @@ public class LevelGenerator : MonoBehaviour
     private List<Vector3> spawnedRooms = new List<Vector3>(); // Позиции уже созданных комнат
     private System.Random random; // Случайный генератор
     private Queue<Vector3> pathQueue = new Queue<Vector3>(); // Очередь для отслеживания текущего пути
+    private Vector3? lastDirection = null; // Направление последнего шага для контроля поворотов
 
     void Start()
     {
@@ -113,6 +114,13 @@ public class LevelGenerator : MonoBehaviour
                 SpawnRoomAtPosition(loopPosition);
                 usedPositions.Add(loopPosKey);
                 spawnedRooms.Add(loopPosition);
+
+                // Обновляем последнее направление при создании круга
+                if (spawnedRooms.Count > 1)
+                {
+                    Vector3 lastRoom = spawnedRooms[spawnedRooms.Count - 2];
+                    lastDirection = (loopPosition - lastRoom).normalized;
+                }
                 return;
             }
         }
@@ -142,8 +150,8 @@ public class LevelGenerator : MonoBehaviour
         }
         else
         {
-            // Обычный выбор позиции - из всех возможных
-            chosenPosition = possiblePositions[random.Next(possiblePositions.Count)];
+            // Обычный выбор позиции - из всех возможных, но с приоритетом продолжения направления
+            chosenPosition = GetPositionWithDirectionPriority(possiblePositions);
         }
 
         // Спавним комнату в выбранной позиции
@@ -154,6 +162,13 @@ public class LevelGenerator : MonoBehaviour
 
         // Сохраняем позицию как уже созданную комнату
         spawnedRooms.Add(chosenPosition);
+
+        // Обновляем последнее направление
+        if (spawnedRooms.Count > 1)
+        {
+            Vector3 lastRoom = spawnedRooms[spawnedRooms.Count - 2];
+            lastDirection = (chosenPosition - lastRoom).normalized;
+        }
 
         // Добавляем в очередь путей, если это не тупик
         if (!createDeadEnd)
@@ -243,5 +258,64 @@ public class LevelGenerator : MonoBehaviour
         };
 
         return directions[random.Next(directions.Length)];
+    }
+
+    /// <summary>
+    /// Выбирает позицию с приоритетом продолжения текущего направления
+    /// </summary>
+    /// <param name="possiblePositions">Список возможных позиций</param>
+    /// <returns>Выбранная позиция</returns>
+    Vector3 GetPositionWithDirectionPriority(List<Vector3> possiblePositions)
+    {
+        if (possiblePositions.Count == 0) return Vector3.zero;
+
+        // Если нет последнего направления (первый шаг), выбираем случайно
+        if (!lastDirection.HasValue || spawnedRooms.Count < 2)
+        {
+            return possiblePositions[random.Next(possiblePositions.Count)];
+        }
+
+        // Получаем последнюю комнату
+        Vector3 lastRoom = spawnedRooms[spawnedRooms.Count - 1];
+
+        // Находим позиции, которые продолжают текущее направление
+        List<Vector3> straightPositions = new List<Vector3>();
+        List<Vector3> turnPositions = new List<Vector3>();
+
+        foreach (Vector3 pos in possiblePositions)
+        {
+            Vector3 directionToPos = (pos - lastRoom).normalized;
+
+            // Проверяем, совпадает ли направление с последним направлением (с небольшой погрешностью)
+            if (Vector3.Dot(directionToPos, lastDirection.Value) > 0.9f) // ~25 градусов погрешности
+            {
+                straightPositions.Add(pos);
+            }
+            else
+            {
+                turnPositions.Add(pos);
+            }
+        }
+
+        // Если есть позиции, продолжающие направление, выбираем из них с 70% вероятностью
+        if (straightPositions.Count > 0 && random.NextDouble() < 0.7)
+        {
+            return straightPositions[random.Next(straightPositions.Count)];
+        }
+        // Если направление продолжения нет, но есть повороты - выбираем из поворотов
+        else if (turnPositions.Count > 0)
+        {
+            return turnPositions[random.Next(turnPositions.Count)];
+        }
+        // Если нет поворотов, но есть прямые - выбираем из прямых
+        else if (straightPositions.Count > 0)
+        {
+            return straightPositions[random.Next(straightPositions.Count)];
+        }
+        // Если нет ни того, ни другого - выбираем случайно
+        else
+        {
+            return possiblePositions[random.Next(possiblePositions.Count)];
+        }
     }
 }
